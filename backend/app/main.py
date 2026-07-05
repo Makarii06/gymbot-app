@@ -5,6 +5,7 @@ from app.database import get_db, engine
 from app.models import Base, User
 from app.auth import get_current_user
 from app.api.exercises import router as exercises_router
+from app.api.endpoints import workout_days
 
 app = FastAPI(title="GymBot API", version="0.1.0")
 
@@ -44,3 +45,4 @@ async def get_my_profile(current_user: User = Depends(get_current_user)):
 
 # Підключаємо маршрути для вправ
 app.include_router(exercises_router)
+app.include_router(workout_days.router, prefix="/api/workout-days", tags=["workout-days"])

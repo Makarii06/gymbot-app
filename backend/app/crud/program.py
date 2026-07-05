@@ -1,57 +1,59 @@
-from sqlalchemy.orm import Session
-from app.models import Program, ProgramDay, ProgramExercise, Exercise
-from app.schemas import ProgramCreate, ProgramUpdate
+from typing import List, Optional
+from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.future import select
+from app.models import WorkoutProgram, WorkoutDay, ProgramDay
 
-def get_program(db: Session, program_id: int):
-    return db.query(Program).filter(Program.id == program_id).first()
+async def get_program(db: AsyncSession, program_id: int) -> Optional[WorkoutProgram]:
+    result = await db.execute(select(WorkoutProgram).filter(WorkoutProgram.id == program_id))
+    return result.scalars().first()
 
-def get_programs_by_owner(db: Session, owner_id: int, skip: int = 0, limit: int = 100):
-    return db.query(Program).filter(Program.owner_id == owner_id).offset(skip).limit(limit).all()
+async def get_programs_by_owner(db: AsyncSession, owner_id: int, skip: int = 0, limit: int = 100) -> List[WorkoutProgram]:
+    result = await db.execute(
+        select(WorkoutProgram)
+        .filter(WorkoutProgram.owner_id == owner_id)
+        .offset(skip)
+        .limit(limit)
+    )
+    return list(result.scalars().all())
 
-def create_program_with_days(db: Session, program_in: ProgramCreate, owner_id: int) -> Program:
-    # 1. Створення самої програми
-    db_program = Program(
-        title=program_in.title,
-        description=program_in.description,
+async def create_workout_program(
+    db: AsyncSession, 
+    owner_id: int, 
+    title: str, 
+    description: Optional[str] = None, 
+    visibility: str = "private",
+    day_ids: Optional[List[int]] = None
+) -> WorkoutProgram:
+    # 1. Створюємо саму програму
+    db_program = WorkoutProgram(
         owner_id=owner_id,
-        parent_program_id=program_in.parent_program_id
+        title=title,
+        description=description,
+        visibility=visibility
     )
     db.add(db_program)
-    db.flush()  # Отримуємо db_program.id без фіксації транзакції
+    await db.flush()  # Отримуємо db_program.id без коміту всієї транзакції
 
-    # 2. Якщо передані дні тренувань, створюємо їх
-    if program_in.days:
-        for day_idx, day_in in enumerate(program_in.days):
-            db_day = ProgramDay(
+    # 2. Якщо передані ID днів, зв'язуємо їх через міст PROGRAM_DAY
+    if day_ids:
+        for order_index, day_id in enumerate(day_ids):
+            # Перевіряємо чи існує такий день (можна опціонально)
+            program_day = ProgramDay(
                 program_id=db_program.id,
-                name=day_in.name or f"День {day_idx + 1}",
-                order_index=day_idx
+                day_id=day_id,
+                order_index=order_index
             )
-            db.add(db_day)
-            db.flush()
+            db.add(program_day)
+        await db.flush()
 
-            # 3. Якщо в дні є вправи/сети
-            if day_in.exercises:
-                for ex_idx, ex_in in enumerate(day_in.exercises):
-                    db_exercise = ProgramExercise(
-                        program_day_id=db_day.id,
-                        exercise_id=ex_in.exercise_id,
-                        sets_count=ex_in.sets_count,
-                        reps_str=ex_in.reps_str,
-                        weight_str=ex_in.weight_str,
-                        target_rpe=ex_in.target_rpe,
-                        rest_time_seconds=ex_in.rest_time_seconds,
-                        order_index=ex_idx
-                    )
-                    db.add(db_exercise)
-
-    db.commit()
-    db.refresh(db_program)
+    await db.commit()
+    await db.refresh(db_program)
     return db_program
 
-def delete_program(db: Session, program_id: int):
-    db_program = db.query(Program).filter(Program.id == program_id).first()
-    if db_program:
-        db.delete(db_program)
-        db.commit()
-    return db_program
+async def delete_program(db: AsyncSession, program_id: int) -> bool:
+    program = await get_program(db, program_id)
+    if program:
+        await db.delete(program)
+        await db.commit()
+        return True
+    return False

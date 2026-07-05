@@ -110,6 +110,7 @@ class WorkoutDay(Base):
     title: Mapped[str] = mapped_column(String)
     description: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     is_public: Mapped[bool] = mapped_column(Boolean, default=False)
+    is_template: Mapped[bool] = mapped_column(Boolean, default=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
 
 class ProgramDay(Base):

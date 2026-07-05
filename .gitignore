@@ -1,3 +1,4 @@
 /backend/app/__pycache__
 /backend/app/api/__pycache__
 .env
+/backend/app/crud/__pycache__

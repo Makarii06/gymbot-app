@@ -84,7 +84,13 @@ class WorkoutDayCreate(BaseModel):
     title: str
     description: Optional[str] = None
     is_public: bool = False
+    is_template: bool = True
     exercises: List[WorkoutExerciseCreate] = [] # Можливість створювати день на ходу з вправами
+
+class WorkoutDayUpdate(BaseModel):
+    title: Optional[str] = None
+    description: Optional[str] = None
+    is_public: Optional[bool] = None
 
 class WorkoutDayResponse(BaseModel):
     id: int
@@ -93,6 +99,7 @@ class WorkoutDayResponse(BaseModel):
     title: str
     description: Optional[str] = None
     is_public: bool
+    is_template: bool
     created_at: datetime
     class Config:
         from_attributes = True
@@ -100,8 +107,7 @@ class WorkoutDayResponse(BaseModel):
 class WorkoutProgramCreate(BaseModel):
     title: str
     description: Optional[str] = None
-    visibility: str = "PRIVATE" # PRIVATE, COACH_STUDENTS, PUBLIC
-    day_ids: List[int] = [] # Список ID днів, які входять в програму
+    visibility: str = "PRIVATE"
 
 class WorkoutProgramResponse(BaseModel):
     id: int

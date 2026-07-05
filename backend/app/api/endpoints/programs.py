@@ -1,75 +1,93 @@
 from typing import List
 from fastapi import APIRouter, Depends, HTTPException, status
-from sqlalchemy.orm import Session
-from app.api import deps
-from app.schemas import ProgramOut, ProgramCreate
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from app.database import get_db
+from app.auth import get_current_user
+from app.models import User
+from app.schemas import WorkoutProgramResponse, WorkoutProgramCreate
 from app.crud import program as crud_program
-from app.models import User  # Припускаємо, що модель користувача є
 
 router = APIRouter()
 
-@router.post("/", response_model=ProgramOut, status_code=status.HTTP_201_CREATED)
-def create_program(
-    *,
-    db: Session = Depends(deps.get_db),
-    program_in: ProgramCreate,
-    current_user: User = Depends(deps.get_current_user)  # Залежність для авторизації через TG
+@router.post("/", response_model=WorkoutProgramResponse, status_code=status.HTTP_201_CREATED)
+async def create_program(
+    program_in: WorkoutProgramCreate,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user)
 ):
-    """
-    Створення нової тренувальної програми разом із днями та вправами (пакетно).
-    """
-    # Перевірка: тільки тренери або користувачі для себе можуть створювати програми
-    return crud_program.create_program_with_days(db=db, program_in=program_in, owner_id=current_user.id)
+    return await crud_program.create_workout_program(
+        db=db,
+        owner_id=current_user.id,
+        title=program_in.title,
+        description=program_in.description,
+        visibility=program_in.visibility,
+        day_ids=program_in.day_ids
+    )
 
-
-@router.get("/", response_model=List[ProgramOut])
-def read_programs(
-    db: Session = Depends(deps.get_db),
+@router.get("/", response_model=List[WorkoutProgramResponse])
+async def read_programs(
     skip: int = 0,
     limit: int = 100,
-    current_user: User = Depends(deps.get_current_user)
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user)
 ):
-    """
-    Отримання списку всіх програм поточного користувача.
-    """
-    programs = crud_program.get_programs_by_owner(db=db, owner_id=current_user.id, skip=skip, limit=limit)
-    return programs
+    return await crud_program.get_programs_by_owner(
+        db=db, owner_id=current_user.id, skip=skip, limit=limit
+    )
 
-
-@router.get("/{program_id}", response_model=ProgramOut)
-def read_program(
+@router.get("/{program_id}", response_model=WorkoutProgramResponse)
+async def read_program(
     program_id: int,
-    db: Session = Depends(deps.get_db),
-    current_user: User = Depends(deps.get_current_user)
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user)
 ):
-    """
-    Отримання детальної інформації про конкретну програму.
-    """
-    program = crud_program.get_program(db=db, program_id=program_id)
+    program = await crud_program.get_program(db=db, program_id=program_id)
     if not program:
-        raise HTTPException(status_code=404, detail="Програму не знайдено")
+        raise HTTPException(status_code=404, detail="Program not found")
     
-    # Перевірка прав доступу (власник програми або тренер учня)
-    if program.owner_id != current_user.id:
-        # Тут згодом додамо логіку перевірки TrainerRelationship
-        raise HTTPException(status_code=403, detail="Немає доступу до цієї програми")
-    
+    # Перевірка приватності (якщо не власник і програма приватна)
+    if program.visibility == "private" and program.owner_id != current_user.id:
+        raise HTTPException(status_code=403, detail="Not enough permissions")
+        
     return program
 
-
-@router.delete("/{program_id}", response_model=ProgramOut)
-def delete_program(
+@router.delete("/{program_id}", status_code=status.HTTP_204_NO_CONTENT)
+async def delete_program(
     program_id: int,
-    db: Session = Depends(deps.get_db),
-    current_user: User = Depends(deps.get_current_user)
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user)
 ):
-    """
-    Видалення програми.
-    """
-    program = crud_program.get_program(db=db, program_id=program_id)
+    program = await crud_program.get_program(db=db, program_id=program_id)
     if not program:
-        raise HTTPException(status_code=404, detail="Програму не знайдено")
+        raise HTTPException(status_code=404, detail="Program not found")
     if program.owner_id != current_user.id:
-        raise HTTPException(status_code=403, detail="Ви не є власником цієї програми")
-    
-    return crud_program.delete_program(db=db, program_id=program_id)
+        raise HTTPException(status_code=403, detail="Not enough permissions")
+        
+    await crud_program.delete_program(db=db, program_id=program_id)
+    return None
+
+@router.post("/{program_id}/add-day-from-template/{template_day_id}", response_model=WorkoutDayResponse)
+async def add_template_day_to_program(
+    program_id: int,
+    template_day_id: int,
+    position: int,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    # Перевіряємо чи програма належить користувачу
+    program = await crud_program.get_program(db=db, program_id=program_id)
+    if not program or program.owner_id != current_user.id:
+        raise HTTPException(status_code=403, detail="Not enough permissions or program not found")
+        
+    try:
+        cloned = await crud_workout_day.clone_day_to_program(
+            db=db, 
+            owner_id=current_user.id, 
+            template_day_id=template_day_id, 
+            program_id=program_id, 
+            position=position
+        )
+        return cloned
+    except ValueError as e:
+        raise HTTPException(status_code=444, detail=str(e))
