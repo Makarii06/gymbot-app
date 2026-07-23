@@ -1,206 +1,523 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { api } from '../api';
-import { FullscreenModal, PopupModal, ExerciseSelectorModal, ExerciseFormModal } from '../components/Modals';
+import { PopupModal } from '../components/modals/PopupModal';
+import { ExerciseFormModal } from '../components/modals/ExerciseFormModal';
+import { WorkoutDetailModal } from '../components/modals/WorkoutDetailModal';
+import { ProgramDetailModal } from '../components/modals/ProgramDetailModal';
+import { TagPickerModal } from '../components/modals/TagPickerModal';
+
+type SubTab = 'exercises' | 'workouts' | 'programs';
 
 export const GalleryPage: React.FC = () => {
-  const [subTab, setSubTab] = useState<'exercises' | 'workouts' | 'programs'>('exercises');
-  
+  const [subTab, setSubTab] = useState<SubTab>('exercises');
+
   const [exercises, setExercises] = useState<any[]>([]);
   const [workoutDays, setWorkoutDays] = useState<any[]>([]);
   const [programs, setPrograms] = useState<any[]>([]);
+  const [loading, setLoading] = useState(false);
 
-  // Створення програм/тренувань
-  const [isQuickCreateOpen, setIsQuickCreateOpen] = useState(false);
-  const [quickTitle, setQuickTitle] = useState('');
-  const [quickDesc, setQuickDesc] = useState('');
+  // Пошук + фільтр
+  const [search, setSearch] = useState('');
+  const [filterTag, setFilterTag] = useState<any | null>(null);
+  const [isFilterOpen, setIsFilterOpen] = useState(false);
 
-  // Перегляд (Картки)
-  const [activeDay, setActiveDay] = useState<any | null>(null);
-  const [activeProgram, setActiveProgram] = useState<any | null>(null);
-  const [activeProgramTabIdx, setActiveProgramTabIdx] = useState<number>(0);
-
-  // Стани для Вправ (Сендвічі)
-  const [isExerciseSelectorOpen, setIsExerciseSelectorOpen] = useState(false);
+  // Вправи
   const [isExerciseFormOpen, setIsExerciseFormOpen] = useState(false);
   const [exerciseToEdit, setExerciseToEdit] = useState<any | null>(null);
 
-  const refreshAll = async () => {
-    try {
-      const ex = await api.getExercises(); setExercises(ex);
-      const days = await api.getWorkoutDays(); setWorkoutDays(days);
-      const progs = await api.getPrograms(); setPrograms(progs);
-    } catch (e) { console.error(e); }
-  };
+  // Тренування
+  const [isCreateWorkoutOpen, setIsCreateWorkoutOpen] = useState(false);
+  const [newWorkoutTitle, setNewWorkoutTitle] = useState('');
+  const [newWorkoutDesc, setNewWorkoutDesc] = useState('');
+  const [activeWorkoutDay, setActiveWorkoutDay] = useState<any | null>(null);
 
-  useEffect(() => { refreshAll(); }, [subTab]);
+  // Програми
+  const [isCreateProgramOpen, setIsCreateProgramOpen] = useState(false);
+  const [newProgramTitle, setNewProgramTitle] = useState('');
+  const [newProgramDesc, setNewProgramDesc] = useState('');
+  const [activeProgram, setActiveProgram] = useState<any | null>(null);
 
-  // ВИПРАВЛЕНО: Створення програми з усіма потрібними параметрами
-  const handleSaveQuick = async () => {
-    if (!quickTitle.trim()) return;
+  const [isSaving, setIsSaving] = useState(false);
+
+  const loadData = async () => {
+    setLoading(true);
     try {
-      if (subTab === 'workouts') {
-        await api.createWorkoutDay({ title: quickTitle, description: quickDesc, is_template: true, exercises: [] });
+      if (subTab === 'exercises') {
+        const data = await api.getExercises();
+        setExercises(data);
+      } else if (subTab === 'workouts') {
+        const data = await api.getWorkoutDays();
+        setWorkoutDays(data);
       } else if (subTab === 'programs') {
-        // Обов'язково передаємо visibility щоб бекенд пропустив валідацію!
-        await api.createProgram({ title: quickTitle, description: quickDesc, visibility: 'PRIVATE', day_ids: [] });
+        const data = await api.getPrograms();
+        setPrograms(data);
       }
-      setQuickTitle(''); setQuickDesc(''); setIsQuickCreateOpen(false);
-      refreshAll();
-    } catch (e) { 
-      alert("Помилка при створенні об'єкта. Перевірте з'єднання з бекендом."); 
+    } catch (e) {
+      console.error(e);
+    } finally {
+      setLoading(false);
     }
   };
 
-  // РОБОЧЕ ЗБЕРЕЖЕННЯ: Додавання вправ до тренувального дня
-  const handleAddExercisesToDay = async (selectedIds: number[]) => {
-    if (!activeDay) return;
+  useEffect(() => {
+    loadData();
+    setSearch('');
+    setFilterTag(null);
+  }, [subTab]);
+
+  // ============ Фільтрація вправ ============
+  const filteredExercises = exercises.filter((ex) => {
+    const matchSearch = ex.name.toLowerCase().includes(search.toLowerCase());
+    const matchTag = !filterTag || (ex.tags || []).some((t: any) => t.id === filterTag.id);
+    return matchSearch && matchTag;
+  });
+
+  const filteredWorkouts = workoutDays.filter((d) =>
+    d.title.toLowerCase().includes(search.toLowerCase())
+  );
+
+  const filteredPrograms = programs.filter((p) =>
+    p.title.toLowerCase().includes(search.toLowerCase())
+  );
+
+  // ============ Дії ============
+
+  // FAB
+  const handleFab = () => {
+    if (subTab === 'exercises') {
+      setExerciseToEdit(null);
+      setIsExerciseFormOpen(true);
+    } else if (subTab === 'workouts') {
+      setIsCreateWorkoutOpen(true);
+    } else {
+      setIsCreateProgramOpen(true);
+    }
+  };
+
+  const handleDeleteWorkout = async (id: number) => {
     try {
-      // Формуємо масив вправ для WorkoutDayCreate/Update конструктора
-      const mappedExercises = selectedIds.map((id, index) => ({
-        exercise_id: id,
-        position: index + 1,
-        note: "Додано з галереї",
-        sets: [{ position: 1, target_reps: 10, target_weight: 0, is_warmup: false }] // Дефолтний підхід
-      }));
+      await api.deleteWorkoutDay(id);
+      loadData();
+    } catch (e: any) {
+      alert(`Помилка: ${e.message}`);
+    }
+  };
 
-      // Зберігаємо оновлений день на сервері
-      const updatedDay = await api.createWorkoutDay({
-        title: activeDay.title,
-        description: activeDay.description,
+  const handleDeleteProgram = async (id: number) => {
+    try {
+      await api.deleteProgram(id);
+      loadData();
+    } catch (e: any) {
+      alert(`Помилка: ${e.message}`);
+    }
+  };
+
+  const handleCreateWorkout = async () => {
+    if (!newWorkoutTitle.trim() || isSaving) return;
+    setIsSaving(true);
+    try {
+      await api.createWorkoutDay({
+        title: newWorkoutTitle.trim(),
+        description: newWorkoutDesc.trim() || null,
+        is_public: false,
         is_template: true,
-        exercises: mappedExercises
       });
+      setNewWorkoutTitle('');
+      setNewWorkoutDesc('');
+      setIsCreateWorkoutOpen(false);
+      loadData();
+    } catch (e: any) {
+      alert(`Помилка: ${e.message}`);
+    } finally {
+      setIsSaving(false);
+    }
+  };
 
-      alert("Вправи успішно додані та збережені в базі даних!");
-      setActiveDay(updatedDay); // Оновлюємо інтерфейс модалки новими даними
-      refreshAll();
-    } catch (e) {
-      alert("Не вдалося зберегти зміни в тренуванні.");
+  const handleCreateProgram = async () => {
+    if (!newProgramTitle.trim() || isSaving) return;
+    setIsSaving(true);
+    try {
+      await api.createProgram({
+        title: newProgramTitle.trim(),
+        description: newProgramDesc.trim() || null,
+        visibility: 'PRIVATE',
+      });
+      setNewProgramTitle('');
+      setNewProgramDesc('');
+      setIsCreateProgramOpen(false);
+      loadData();
+    } catch (e: any) {
+      alert(`Помилка: ${e.message}`);
+    } finally {
+      setIsSaving(false);
+    }
+  };
+
+  // ============ Render ============
+  const tabConfig = [
+    { key: 'exercises', label: '🏋️ Вправи' },
+    { key: 'workouts', label: '📋 Тренування' },
+    { key: 'programs', label: '📅 Програми' },
+  ] as const;
+
+  return (
+    <div className="min-h-screen bg-slate-950 text-white pb-28">
+      {/* Вкладки */}
+      <div className="sticky top-0 z-10 bg-slate-950 border-b border-slate-800 px-4 pt-3 pb-0">
+        <div className="flex gap-1">
+          {tabConfig.map(({ key, label }) => (
+            <button
+              key={key}
+              onClick={() => setSubTab(key)}
+              className={`flex-1 py-2.5 px-2 rounded-t-xl text-[11px] font-bold tracking-wide transition border-b-2 ${
+                subTab === key
+                  ? 'text-white border-blue-500 bg-slate-900'
+                  : 'text-gray-500 border-transparent hover:text-gray-300'
+              }`}
+            >
+              {label}
+            </button>
+          ))}
+        </div>
+      </div>
+
+      {/* Пошук + фільтр тегів (тільки для вправ) */}
+      <div className="px-4 pt-3 pb-0">
+        <div className="flex gap-2">
+          <div className="relative flex-1">
+            <span className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-500 text-sm">🔍</span>
+            <input
+              type="text"
+              placeholder={`Пошук ${subTab === 'exercises' ? 'вправ' : subTab === 'workouts' ? 'тренувань' : 'програм'}...`}
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              className="w-full pl-8 pr-3 py-2.5 bg-slate-900 border border-slate-800 rounded-2xl text-sm text-white placeholder-gray-500 focus:outline-none focus:border-slate-700 transition"
+            />
+          </div>
+          {subTab === 'exercises' && (
+            <button
+              onClick={() => setIsFilterOpen(true)}
+              className={`px-3 py-2.5 rounded-2xl border text-sm transition ${
+                filterTag
+                  ? 'bg-blue-500/20 border-blue-500/50 text-blue-400'
+                  : 'bg-slate-900 border-slate-800 text-gray-500 hover:text-gray-300'
+              }`}
+              title="Фільтр за тегом"
+            >
+              🏷
+              {filterTag && <span className="ml-1 text-xs">{filterTag.name}</span>}
+            </button>
+          )}
+        </div>
+        {filterTag && (
+          <button
+            onClick={() => setFilterTag(null)}
+            className="text-xs text-gray-500 mt-1.5 hover:text-gray-300 flex items-center gap-1"
+          >
+            ✕ Скинути фільтр: {filterTag.name}
+          </button>
+        )}
+      </div>
+
+      {/* Контент */}
+      <div className="px-4 pt-3 space-y-2">
+        {loading && (
+          <div className="flex justify-center py-10">
+            <div className="w-8 h-8 border-2 border-blue-500 border-t-transparent rounded-full animate-spin" />
+          </div>
+        )}
+
+        {/* ======= ВПРАВИ ======= */}
+        {!loading && subTab === 'exercises' && (
+          <>
+            {filteredExercises.length === 0 && (
+              <div className="flex flex-col items-center py-16 text-center">
+                <div className="text-5xl mb-4">💪</div>
+                <p className="text-gray-400 font-semibold">
+                  {search || filterTag ? 'Нічого не знайдено' : 'Вправ ще немає'}
+                </p>
+              </div>
+            )}
+            {filteredExercises.map((ex) => {
+              const firstImg = (ex.media || []).find((m: any) => m.media_type === 'image');
+              return (
+                <div
+                  key={ex.id}
+                  className="flex items-center p-3 bg-slate-900 border border-slate-800 rounded-2xl hover:border-slate-700 transition cursor-pointer active:bg-slate-800"
+                  onClick={() => { setExerciseToEdit(ex); setIsExerciseFormOpen(true); }}
+                >
+                  {/* Фото або емодзі */}
+                  <div className="w-12 h-12 rounded-xl overflow-hidden flex-shrink-0 mr-3 bg-slate-800 flex items-center justify-center">
+                    {firstImg ? (
+                      <img src={firstImg.url} alt="" className="w-full h-full object-cover" />
+                    ) : (
+                      <span className="text-2xl">💪</span>
+                    )}
+                  </div>
+
+                  <div className="flex-1 min-w-0">
+                    <p className="text-sm font-bold text-white truncate">{ex.name}</p>
+                    {ex.description && (
+                      <p className="text-xs text-gray-500 truncate mt-0.5">{ex.description}</p>
+                    )}
+                    {/* Теги */}
+                    {ex.tags && ex.tags.length > 0 && (
+                      <div className="flex gap-1.5 mt-1.5 flex-wrap">
+                        {ex.tags.slice(0, 4).map((tag: any) => (
+                          <span
+                            key={tag.id}
+                            className="text-[10px] px-2 py-0.5 bg-blue-500/15 text-blue-400 border border-blue-500/20 rounded-full"
+                          >
+                            {tag.name}
+                          </span>
+                        ))}
+                        {ex.tags.length > 4 && (
+                          <span className="text-[10px] px-2 py-0.5 text-gray-500">
+                            +{ex.tags.length - 4}
+                          </span>
+                        )}
+                      </div>
+                    )}
+                    {/* М'язи */}
+                    {ex.muscles && ex.muscles.length > 0 && (
+                      <div className="flex gap-1.5 mt-1 flex-wrap">
+                        {ex.muscles.slice(0, 3).map((m: any) => (
+                          <span
+                            key={m.id}
+                            className="text-[10px] px-2 py-0.5 bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 rounded-full"
+                          >
+                            {m.muscle_group?.name || '—'}
+                          </span>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+
+                  <span className="text-gray-600 text-sm ml-2 flex-shrink-0">›</span>
+                </div>
+              );
+            })}
+          </>
+        )}
+
+        {/* ======= ТРЕНУВАННЯ ======= */}
+        {!loading && subTab === 'workouts' && (
+          <>
+            {filteredWorkouts.length === 0 && (
+              <div className="flex flex-col items-center py-16 text-center">
+                <div className="text-5xl mb-4">📋</div>
+                <p className="text-gray-400 font-semibold">
+                  {search ? 'Нічого не знайдено' : 'Тренувань ще немає'}
+                </p>
+              </div>
+            )}
+            {filteredWorkouts.map((day) => (
+              <div
+                key={day.id}
+                className="flex items-center p-3 bg-slate-900 border border-slate-800 rounded-2xl hover:border-slate-700 transition cursor-pointer"
+                onClick={() => setActiveWorkoutDay(day)}
+              >
+                <div className="w-12 h-12 bg-emerald-500/10 border border-emerald-500/20 rounded-xl flex items-center justify-center text-2xl flex-shrink-0 mr-3">
+                  📋
+                </div>
+                <div className="flex-1 min-w-0">
+                  <p className="text-sm font-bold text-emerald-400 truncate">{day.title}</p>
+                  {day.description && (
+                    <p className="text-xs text-gray-500 truncate mt-0.5">{day.description}</p>
+                  )}
+                  <p className="text-[10px] text-gray-600 mt-0.5">
+                    {new Date(day.created_at).toLocaleDateString('uk-UA')}
+                  </p>
+                </div>
+                <div className="flex gap-1.5 ml-2 flex-shrink-0" onClick={(e) => e.stopPropagation()}>
+                  <DeleteButton onDelete={() => handleDeleteWorkout(day.id)} />
+                </div>
+                <span className="text-gray-600 text-sm ml-2">›</span>
+              </div>
+            ))}
+          </>
+        )}
+
+        {/* ======= ПРОГРАМИ ======= */}
+        {!loading && subTab === 'programs' && (
+          <>
+            {filteredPrograms.length === 0 && (
+              <div className="flex flex-col items-center py-16 text-center">
+                <div className="text-5xl mb-4">📅</div>
+                <p className="text-gray-400 font-semibold">
+                  {search ? 'Нічого не знайдено' : 'Програм ще немає'}
+                </p>
+              </div>
+            )}
+            {filteredPrograms.map((prog) => (
+              <div
+                key={prog.id}
+                className="flex items-center p-3 bg-slate-900 border border-slate-800 rounded-2xl hover:border-slate-700 transition cursor-pointer"
+                onClick={() => setActiveProgram(prog)}
+              >
+                <div className="w-12 h-12 bg-purple-500/10 border border-purple-500/20 rounded-xl flex items-center justify-center text-2xl flex-shrink-0 mr-3">
+                  📅
+                </div>
+                <div className="flex-1 min-w-0">
+                  <p className="text-sm font-bold text-purple-400 truncate">{prog.title}</p>
+                  {prog.description && (
+                    <p className="text-xs text-gray-500 truncate mt-0.5">{prog.description}</p>
+                  )}
+                  <span className={`text-[10px] px-1.5 py-0.5 rounded-full ${
+                    prog.visibility === 'PRIVATE'
+                      ? 'text-gray-500'
+                      : 'text-emerald-400'
+                  }`}>
+                    {prog.visibility === 'PRIVATE' ? '🔒 Приватна' : '🌐 Публічна'}
+                  </span>
+                </div>
+                <div className="flex gap-1.5 ml-2 flex-shrink-0" onClick={(e) => e.stopPropagation()}>
+                  <DeleteButton onDelete={() => handleDeleteProgram(prog.id)} />
+                </div>
+                <span className="text-gray-600 text-sm ml-2">›</span>
+              </div>
+            ))}
+          </>
+        )}
+      </div>
+
+      {/* ======= FAB Кнопка ======= */}
+      <button
+        onClick={handleFab}
+        className="fixed bottom-24 right-4 z-40 w-14 h-14 rounded-full bg-blue-600 hover:bg-blue-500 active:bg-blue-700 shadow-lg shadow-blue-600/30 flex items-center justify-center text-2xl font-light transition"
+        aria-label="Додати"
+      >
+        +
+      </button>
+
+      {/* ======= МОДАЛКИ ======= */}
+
+      {/* Форма вправи — відкривається при кліку на вправу або FAB */}
+      <ExerciseFormModal
+        isOpen={isExerciseFormOpen}
+        onClose={() => setIsExerciseFormOpen(false)}
+        exerciseToEdit={exerciseToEdit}
+        onSave={() => { loadData(); setIsExerciseFormOpen(false); }}
+        onDelete={() => { loadData(); setIsExerciseFormOpen(false); }}
+      />
+
+      {/* Фільтр тегів */}
+      <TagPickerModal
+        isOpen={isFilterOpen}
+        onClose={() => setIsFilterOpen(false)}
+        selectedTagIds={filterTag ? [filterTag.id] : []}
+        onConfirm={(tags) => setFilterTag(tags[0] || null)}
+        zIndex={200}
+      />
+
+      {/* Popup створення тренування */}
+      <PopupModal
+        isOpen={isCreateWorkoutOpen}
+        onClose={() => setIsCreateWorkoutOpen(false)}
+        title="📋 Нове тренування"
+      >
+        <div className="space-y-3">
+          <input
+            type="text"
+            value={newWorkoutTitle}
+            onChange={(e) => setNewWorkoutTitle(e.target.value)}
+            placeholder="Назва тренування..."
+            className="w-full px-4 py-3 bg-slate-800 border border-slate-700 rounded-2xl text-sm text-white placeholder-gray-500 focus:outline-none focus:border-blue-500 transition"
+          />
+          <textarea
+            value={newWorkoutDesc}
+            onChange={(e) => setNewWorkoutDesc(e.target.value)}
+            placeholder="Опис (необов'язково)..."
+            rows={2}
+            className="w-full px-4 py-3 bg-slate-800 border border-slate-700 rounded-2xl text-sm text-white placeholder-gray-500 focus:outline-none focus:border-blue-500 transition resize-none"
+          />
+          <button
+            onClick={handleCreateWorkout}
+            disabled={!newWorkoutTitle.trim() || isSaving}
+            className="w-full py-3 rounded-2xl font-bold text-sm bg-emerald-600 hover:bg-emerald-500 disabled:bg-slate-700 disabled:text-gray-500 transition"
+          >
+            {isSaving ? '⏳ Створення...' : '✓ Створити тренування'}
+          </button>
+        </div>
+      </PopupModal>
+
+      {/* Popup створення програми */}
+      <PopupModal
+        isOpen={isCreateProgramOpen}
+        onClose={() => setIsCreateProgramOpen(false)}
+        title="📅 Нова програма"
+      >
+        <div className="space-y-3">
+          <input
+            type="text"
+            value={newProgramTitle}
+            onChange={(e) => setNewProgramTitle(e.target.value)}
+            placeholder="Назва програми..."
+            className="w-full px-4 py-3 bg-slate-800 border border-slate-700 rounded-2xl text-sm text-white placeholder-gray-500 focus:outline-none focus:border-blue-500 transition"
+          />
+          <textarea
+            value={newProgramDesc}
+            onChange={(e) => setNewProgramDesc(e.target.value)}
+            placeholder="Опис (необов'язково)..."
+            rows={2}
+            className="w-full px-4 py-3 bg-slate-800 border border-slate-700 rounded-2xl text-sm text-white placeholder-gray-500 focus:outline-none focus:border-blue-500 transition resize-none"
+          />
+          <button
+            onClick={handleCreateProgram}
+            disabled={!newProgramTitle.trim() || isSaving}
+            className="w-full py-3 rounded-2xl font-bold text-sm bg-purple-600 hover:bg-purple-500 disabled:bg-slate-700 disabled:text-gray-500 transition"
+          >
+            {isSaving ? '⏳ Створення...' : '✓ Створити програму'}
+          </button>
+        </div>
+      </PopupModal>
+
+      {/* Деталі тренування */}
+      <WorkoutDetailModal
+        isOpen={!!activeWorkoutDay}
+        onClose={() => setActiveWorkoutDay(null)}
+        workoutDay={activeWorkoutDay}
+        onUpdate={loadData}
+        zIndex={150}
+      />
+
+      {/* Деталі програми */}
+      <ProgramDetailModal
+        isOpen={!!activeProgram}
+        onClose={() => setActiveProgram(null)}
+        program={activeProgram}
+        onUpdate={loadData}
+        zIndex={120}
+      />
+    </div>
+  );
+};
+
+// Inline підтвердження видалення для списку
+const DeleteButton: React.FC<{ onDelete: () => void }> = ({ onDelete }) => {
+  const [confirm, setConfirm] = useState(false);
+  const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const handle = () => {
+    if (!confirm) {
+      setConfirm(true);
+      timer.current = setTimeout(() => setConfirm(false), 3000);
+    } else {
+      if (timer.current) clearTimeout(timer.current);
+      onDelete();
     }
   };
 
   return (
-    <div className="p-4 space-y-4 text-white">
-      {/* Навігація */}
-      <div className="flex bg-slate-950 p-1 rounded-xl border border-slate-900 text-xs font-semibold">
-        {['exercises', 'workouts', 'programs'].map((tab) => (
-          <button
-            key={tab}
-            onClick={() => setSubTab(tab as any)}
-            className={`flex-1 py-2 text-center rounded-lg uppercase tracking-wider transition text-[10px] ${
-              subTab === tab ? 'bg-slate-900 text-blue-400 border border-slate-800/50' : 'text-gray-500'
-            }`}
-          >
-            {tab === 'exercises' ? '🏋️‍♂️ Вправи' : tab === 'workouts' ? '📋 Тренування' : '📅 Програми'}
-          </button>
-        ))}
-      </div>
-
-      <button 
-        onClick={() => {
-          if (subTab === 'exercises') { setExerciseToEdit(null); setIsExerciseFormOpen(true); }
-          else setIsQuickCreateOpen(true);
-        }}
-        className="w-full bg-blue-600 hover:bg-blue-700 py-2.5 rounded-xl text-xs font-bold tracking-wide transition"
-      >
-        + {subTab === 'exercises' ? 'Створити повну вправу' : subTab === 'workouts' ? 'Створити шаблон дня' : 'Створити програму'}
-      </button>
-
-      {/* Список */}
-      <div className="space-y-2">
-        {subTab === 'exercises' && exercises.map(ex => (
-          <div key={ex.id} className="flex items-center justify-between p-3 bg-slate-950 border border-slate-900 rounded-xl">
-            <div className="flex items-center gap-3">
-              <div className="w-10 h-10 bg-slate-900 rounded-lg flex items-center justify-center text-lg">
-                {ex.media_url ? "📹" : "💪"}
-              </div>
-              <div>
-                <h4 className="font-bold text-xs">{ex.name}</h4>
-                <p className="text-[10px] text-gray-400 line-clamp-1">{ex.description}</p>
-              </div>
-            </div>
-            <button 
-              onClick={() => { setExerciseToEdit(ex); setIsExerciseFormOpen(true); }}
-              className="text-xs bg-slate-800 hover:bg-slate-700 px-2 py-1 rounded-lg text-amber-400"
-            >
-              Редагувати
-            </button>
-          </div>
-        ))}
-
-        {subTab === 'workouts' && workoutDays.map(day => (
-          <div key={day.id} onClick={() => setActiveDay(day)} className="p-3 bg-slate-950 border border-slate-900 rounded-xl hover:border-slate-800 cursor-pointer">
-            <h4 className="font-bold text-xs text-emerald-400">{day.title}</h4>
-            <p className="text-[10px] text-gray-500 truncate">{day.description}</p>
-          </div>
-        ))}
-
-        {subTab === 'programs' && programs.map(prog => (
-          <div key={prog.id} onClick={() => { setActiveProgram(prog); setActiveProgramTabIdx(0); }} className="p-3 bg-slate-950 border border-slate-900 rounded-xl hover:border-slate-800 cursor-pointer">
-            <h4 className="font-bold text-xs text-purple-400">{prog.title}</h4>
-            <p className="text-[10px] text-gray-500 truncate">{prog.description}</p>
-          </div>
-        ))}
-      </div>
-
-      {/* ПОПАП ШВИДКОГО СТВОРЕННЯ (ДНІ/ПРОГРАМИ) */}
-      <PopupModal isOpen={isQuickCreateOpen} onClose={() => setIsQuickCreateOpen(false)} title={subTab === 'workouts' ? "Новий шаблон дня" : "Нова програма"}>
-        <div className="space-y-3">
-          <input type="text" placeholder="Назва..." value={quickTitle} onChange={e => setQuickTitle(e.target.value)} className="w-full text-xs px-3 py-2.5 bg-slate-950 border border-slate-800 rounded-xl focus:outline-none focus:border-blue-500 text-white"/>
-          <textarea placeholder="Опис..." value={quickDesc} onChange={e => setQuickDesc(e.target.value)} className="w-full text-xs px-3 py-2.5 bg-slate-950 border border-slate-800 rounded-xl focus:outline-none focus:border-blue-500 h-20 resize-none text-white"/>
-          <button onClick={handleSaveQuick} className="w-full bg-blue-600 py-2.5 rounded-xl text-xs font-bold">Зберегти</button>
-        </div>
-      </PopupModal>
-
-      {/* МОДАЛКА: ДЕТАЛІ ШАБЛОНУ ТРЕНУВАННЯ */}
-      <FullscreenModal isOpen={activeDay !== null} onClose={() => setActiveDay(null)} title={activeDay?.title || ''}>
-        <div className="space-y-4">
-          <p className="text-xs text-gray-400 bg-slate-950 p-3 rounded-xl border border-slate-900">{activeDay?.description || 'Опис відсутній'}</p>
-          <h4 className="text-xs font-bold text-gray-400 uppercase">Вправи в тренуванні:</h4>
-          
-          {activeDay?.exercises && activeDay.exercises.length > 0 ? (
-            <div className="space-y-2">
-              {activeDay.exercises.map((ex: any, idx: number) => (
-                <div key={idx} className="p-3 bg-slate-950 rounded-xl border border-slate-900 text-xs flex justify-between">
-                  <span>{idx + 1}. Вправа ID {ex.exercise_id}</span>
-                  <span className="text-gray-500">{ex.note}</span>
-                </div>
-              ))}
-            </div>
-          ) : (
-            <div className="border border-dashed border-slate-800 rounded-xl p-6 text-center text-xs text-gray-600">Вправи ще не додані.</div>
-          )}
-
-          <button onClick={() => setIsExerciseSelectorOpen(true)} className="w-full bg-emerald-600 py-3 rounded-xl text-xs font-bold mt-4">+ Додати вправу з Галереї</button>
-        </div>
-      </FullscreenModal>
-
-      {/* МОДАЛКА: ДЕТАЛІ ПРОГРАМИ */}
-      <FullscreenModal isOpen={activeProgram !== null} onClose={() => setActiveProgram(null)} title={`Програма: ${activeProgram?.title}`}>
-        <div className="space-y-4">
-          <div className="flex gap-2 overflow-x-auto pb-2 border-b border-slate-800 scrollbar-none">
-            {['День 1', 'День 2'].map((dayTitle, idx) => (
-              <button key={idx} onClick={() => setActiveProgramTabIdx(idx)} className={`px-3 py-1.5 rounded-lg text-xs font-semibold whitespace-nowrap border transition ${activeProgramTabIdx === idx ? 'bg-purple-600/20 border-purple-500 text-purple-400' : 'bg-slate-950 border-slate-900 text-gray-400'}`}>{dayTitle}</button>
-            ))}
-            <button onClick={() => alert("Додавання дня...")} className="px-3 py-1.5 rounded-lg text-xs font-bold bg-slate-800 text-white border border-slate-700">+</button>
-          </div>
-          <div className="p-4 bg-slate-950 rounded-xl border border-slate-900 min-h-40 text-xs text-gray-400">Вміст дня програми...</div>
-        </div>
-      </FullscreenModal>
-
-      {/* СЕНДВІЧ-МОДАЛКА: СЕЛЕКТОР ВПРАВ */}
-      <ExerciseSelectorModal 
-        isOpen={isExerciseSelectorOpen} onClose={() => setIsExerciseSelectorOpen(false)}
-        onAddExercises={handleAddExercisesToDay}
-        onCreateNew={() => { setExerciseToEdit(null); setIsExerciseFormOpen(true); }}
-        onEditExercise={(ex) => { setExerciseToEdit(ex); setIsExerciseFormOpen(true); }}
-      />
-
-      {/* СЕНДВІЧ-МОДАЛКА: ФОРМА ВПРАВИ (СТВОРЕННЯ/РЕДАГУВАННЯ) */}
-      <ExerciseFormModal 
-        isOpen={isExerciseFormOpen} onClose={() => setIsExerciseFormOpen(false)}
-        exerciseToEdit={exerciseToEdit} onSave={refreshAll}
-      />
-    </div>
+    <button
+      onClick={handle}
+      className={`w-8 h-8 flex items-center justify-center rounded-xl transition text-sm ${
+        confirm
+          ? 'bg-red-600/30 text-red-400'
+          : 'bg-slate-800 text-gray-500 hover:text-red-400'
+      }`}
+    >
+      {confirm ? '✓' : '🗑'}
+    </button>
   );
 };

@@ -1,1 +1,33 @@
 @import "tailwindcss";
+
+/* Scrollbar hide utility */
+.scrollbar-none {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
+}
+.scrollbar-none::-webkit-scrollbar {
+  display: none;
+}
+
+/* Bottom sheet slide-up animation */
+@keyframes slideUp {
+  from {
+    transform: translateY(100%);
+    opacity: 0;
+  }
+  to {
+    transform: translateY(0);
+    opacity: 1;
+  }
+}
+
+/* Spinner animation */
+@keyframes spin {
+  to { transform: rotate(360deg); }
+}
+
+/* Safe area padding for mobile */
+body {
+  -webkit-tap-highlight-color: transparent;
+  overscroll-behavior: none;
+}

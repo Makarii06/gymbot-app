@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import { GalleryPage } from './pages/GalleryPage'
-import { TrainingSessionPage, CoachPanelPage, StatisticsPage, ProfilePage } from './pages/OtherPages'
+import { TrainingPage } from './pages/TrainingPage'
+import { CoachPanelPage, StatisticsPage, ProfilePage } from './pages/OtherPages'
 
 function App() {
   const [activeTab, setActiveTab] = useState<'gallery' | 'training' | 'coach' | 'stats' | 'profile'>('gallery');
@@ -16,7 +17,7 @@ function App() {
   const renderTabContent = () => {
     switch (activeTab) {
       case 'gallery': return <GalleryPage />;
-      case 'training': return <TrainingSessionPage />;
+      case 'training': return <TrainingPage />;
       case 'coach': return <CoachPanelPage />;
       case 'stats': return <StatisticsPage />;
       case 'profile': return <ProfilePage />;

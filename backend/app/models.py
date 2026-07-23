@@ -43,29 +43,12 @@ class Tag(Base):
     name: Mapped[str] = mapped_column(String, unique=True, index=True)
     is_system: Mapped[bool] = mapped_column(Boolean, default=False)
 
+    exercise_tags: Mapped[List["ExerciseTag"]] = relationship("ExerciseTag", back_populates="tag")
+
 class UserTag(Base):
     __tablename__ = "user_tags"
 
     user_id: Mapped[int] = mapped_column(BigInteger, ForeignKey("users.id", ondelete="CASCADE"), primary_key=True)
-    tag_id: Mapped[int] = mapped_column(BigInteger, ForeignKey("tags.id", ondelete="CASCADE"), primary_key=True)
-
-class Exercise(Base):
-    __tablename__ = "exercises"
-
-    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
-    owner_id: Mapped[int] = mapped_column(BigInteger, ForeignKey("users.id", ondelete="CASCADE"))
-    source_exercise_id: Mapped[Optional[int]] = mapped_column(BigInteger, ForeignKey("exercises.id", ondelete="SET NULL"), nullable=True)
-    
-    name: Mapped[str] = mapped_column(String, index=True)
-    description: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
-    media_url: Mapped[Optional[str]] = mapped_column(String, nullable=True)
-    is_public: Mapped[bool] = mapped_column(Boolean, default=False)
-    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
-
-class ExerciseTag(Base):
-    __tablename__ = "exercise_tags"
-
-    exercise_id: Mapped[int] = mapped_column(BigInteger, ForeignKey("exercises.id", ondelete="CASCADE"), primary_key=True)
     tag_id: Mapped[int] = mapped_column(BigInteger, ForeignKey("tags.id", ondelete="CASCADE"), primary_key=True)
 
 class MuscleGroup(Base):
@@ -75,6 +58,52 @@ class MuscleGroup(Base):
     parent_group_id: Mapped[Optional[int]] = mapped_column(BigInteger, ForeignKey("muscle_groups.id", ondelete="CASCADE"), nullable=True)
     name: Mapped[str] = mapped_column(String, unique=True)
 
+    exercise_muscles: Mapped[List["ExerciseMuscle"]] = relationship("ExerciseMuscle", back_populates="muscle_group")
+
+class Exercise(Base):
+    __tablename__ = "exercises"
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    owner_id: Mapped[int] = mapped_column(BigInteger, ForeignKey("users.id", ondelete="CASCADE"))
+    source_exercise_id: Mapped[Optional[int]] = mapped_column(BigInteger, ForeignKey("exercises.id", ondelete="SET NULL"), nullable=True)
+
+    name: Mapped[str] = mapped_column(String, index=True)
+    description: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    is_public: Mapped[bool] = mapped_column(Boolean, default=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+
+    exercise_tags: Mapped[List["ExerciseTag"]] = relationship(
+        "ExerciseTag", back_populates="exercise", cascade="all, delete-orphan"
+    )
+    muscles: Mapped[List["ExerciseMuscle"]] = relationship(
+        "ExerciseMuscle", back_populates="exercise", cascade="all, delete-orphan"
+    )
+    media: Mapped[List["ExerciseMedia"]] = relationship(
+        "ExerciseMedia", back_populates="exercise", cascade="all, delete-orphan",
+        order_by="ExerciseMedia.position"
+    )
+
+class ExerciseMedia(Base):
+    __tablename__ = "exercise_media"
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    exercise_id: Mapped[int] = mapped_column(BigInteger, ForeignKey("exercises.id", ondelete="CASCADE"))
+    url: Mapped[str] = mapped_column(String)
+    media_type: Mapped[str] = mapped_column(String, default="image")  # 'image' | 'video'
+    position: Mapped[int] = mapped_column(Integer, default=0)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+
+    exercise: Mapped["Exercise"] = relationship("Exercise", back_populates="media")
+
+class ExerciseTag(Base):
+    __tablename__ = "exercise_tags"
+
+    exercise_id: Mapped[int] = mapped_column(BigInteger, ForeignKey("exercises.id", ondelete="CASCADE"), primary_key=True)
+    tag_id: Mapped[int] = mapped_column(BigInteger, ForeignKey("tags.id", ondelete="CASCADE"), primary_key=True)
+
+    exercise: Mapped["Exercise"] = relationship("Exercise", back_populates="exercise_tags")
+    tag: Mapped["Tag"] = relationship("Tag", back_populates="exercise_tags")
+
 class ExerciseMuscle(Base):
     __tablename__ = "exercise_muscles"
 
@@ -82,6 +111,9 @@ class ExerciseMuscle(Base):
     exercise_id: Mapped[int] = mapped_column(BigInteger, ForeignKey("exercises.id", ondelete="CASCADE"))
     muscle_group_id: Mapped[int] = mapped_column(BigInteger, ForeignKey("muscle_groups.id", ondelete="CASCADE"))
     coefficient: Mapped[Decimal] = mapped_column(Numeric(3, 2))
+
+    exercise: Mapped["Exercise"] = relationship("Exercise", back_populates="muscles")
+    muscle_group: Mapped["MuscleGroup"] = relationship("MuscleGroup", back_populates="exercise_muscles")
 
 
 # ==========================================
@@ -94,11 +126,15 @@ class WorkoutProgram(Base):
     id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
     owner_id: Mapped[int] = mapped_column(BigInteger, ForeignKey("users.id", ondelete="CASCADE"))
     source_program_id: Mapped[Optional[int]] = mapped_column(BigInteger, ForeignKey("workout_programs.id", ondelete="SET NULL"), nullable=True)
-    
+
     title: Mapped[str] = mapped_column(String)
     description: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     visibility: Mapped[str] = mapped_column(String, default="PRIVATE")
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+
+    program_days: Mapped[List["ProgramDay"]] = relationship(
+        "ProgramDay", back_populates="program", cascade="all, delete-orphan", order_by="ProgramDay.position"
+    )
 
 class WorkoutDay(Base):
     __tablename__ = "workout_days"
@@ -106,12 +142,16 @@ class WorkoutDay(Base):
     id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
     owner_id: Mapped[int] = mapped_column(BigInteger, ForeignKey("users.id", ondelete="CASCADE"))
     source_workout_day_id: Mapped[Optional[int]] = mapped_column(BigInteger, ForeignKey("workout_days.id", ondelete="SET NULL"), nullable=True)
-    
+
     title: Mapped[str] = mapped_column(String)
     description: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     is_public: Mapped[bool] = mapped_column(Boolean, default=False)
     is_template: Mapped[bool] = mapped_column(Boolean, default=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+
+    exercises: Mapped[List["WorkoutExercise"]] = relationship(
+        "WorkoutExercise", back_populates="workout_day", cascade="all, delete-orphan", order_by="WorkoutExercise.position"
+    )
 
 class ProgramDay(Base):
     __tablename__ = "program_days"
@@ -121,6 +161,9 @@ class ProgramDay(Base):
     workout_day_id: Mapped[int] = mapped_column(BigInteger, ForeignKey("workout_days.id", ondelete="CASCADE"))
     position: Mapped[int] = mapped_column(Integer)
 
+    program: Mapped["WorkoutProgram"] = relationship("WorkoutProgram", back_populates="program_days")
+    workout_day: Mapped["WorkoutDay"] = relationship("WorkoutDay")
+
 class WorkoutExercise(Base):
     __tablename__ = "workout_exercises"
 
@@ -129,6 +172,12 @@ class WorkoutExercise(Base):
     exercise_id: Mapped[int] = mapped_column(BigInteger, ForeignKey("exercises.id", ondelete="CASCADE"))
     position: Mapped[int] = mapped_column(Integer)
     note: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+
+    workout_day: Mapped["WorkoutDay"] = relationship("WorkoutDay", back_populates="exercises")
+    exercise: Mapped["Exercise"] = relationship("Exercise")
+    sets: Mapped[List["WorkoutSetTemplate"]] = relationship(
+        "WorkoutSetTemplate", back_populates="workout_exercise", cascade="all, delete-orphan", order_by="WorkoutSetTemplate.position"
+    )
 
 class WorkoutSetTemplate(Base):
     __tablename__ = "workout_set_templates"
@@ -141,6 +190,8 @@ class WorkoutSetTemplate(Base):
     target_duration_sec: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
     is_warmup: Mapped[bool] = mapped_column(Boolean, default=False)
 
+    workout_exercise: Mapped["WorkoutExercise"] = relationship("WorkoutExercise", back_populates="sets")
+
 
 # ==========================================
 # 4. РЕАЛЬНІ ТРЕНУВАЛЬНІ СЕСІЇ (АКТИВНІСТЬ)
@@ -152,13 +203,21 @@ class TrainingSession(Base):
     id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
     owner_id: Mapped[int] = mapped_column(BigInteger, ForeignKey("users.id", ondelete="CASCADE"))
     trainer_id: Mapped[Optional[int]] = mapped_column(BigInteger, ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
-    
+
     title: Mapped[str] = mapped_column(String)
+    description: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     status: Mapped[str] = mapped_column(String, default="PLANNED")
     planned_date: Mapped[date] = mapped_column(Date)
+    rest_duration_seconds: Mapped[Optional[int]] = mapped_column(Integer, nullable=True, default=90)
     started_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
     finished_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+
+
+    exercises: Mapped[List["SessionExercise"]] = relationship(
+        "SessionExercise", back_populates="session", cascade="all, delete-orphan",
+        order_by="SessionExercise.position"
+    )
 
 class SessionExercise(Base):
     __tablename__ = "session_exercises"
@@ -169,23 +228,32 @@ class SessionExercise(Base):
     position: Mapped[int] = mapped_column(Integer)
     note: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
 
+    session: Mapped["TrainingSession"] = relationship("TrainingSession", back_populates="exercises")
+    exercise: Mapped[Optional["Exercise"]] = relationship("Exercise")
+    sets: Mapped[List["SessionExerciseSet"]] = relationship(
+        "SessionExerciseSet", back_populates="session_exercise", cascade="all, delete-orphan",
+        order_by="SessionExerciseSet.position"
+    )
+
 class SessionExerciseSet(Base):
     __tablename__ = "session_exercise_sets"
 
     id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
     session_exercise_id: Mapped[int] = mapped_column(BigInteger, ForeignKey("session_exercises.id", ondelete="CASCADE"))
     position: Mapped[int] = mapped_column(Integer)
-    
+
     planned_reps: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
     planned_weight: Mapped[Optional[Decimal]] = mapped_column(Numeric(6, 2), nullable=True)
     planned_duration_sec: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
-    
+
     actual_reps: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
     actual_weight: Mapped[Optional[Decimal]] = mapped_column(Numeric(6, 2), nullable=True)
     actual_duration_sec: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
-    
+
     completed: Mapped[bool] = mapped_column(Boolean, default=False)
     is_warmup: Mapped[bool] = mapped_column(Boolean, default=False)
+
+    session_exercise: Mapped["SessionExercise"] = relationship("SessionExercise", back_populates="sets")
 
 
 # ==========================================
@@ -198,7 +266,7 @@ class BodyMeasurement(Base):
     id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
     user_id: Mapped[int] = mapped_column(BigInteger, ForeignKey("users.id", ondelete="CASCADE"))
     measurement_date: Mapped[date] = mapped_column(Date)
-    
+
     weight_kg: Mapped[Optional[Decimal]] = mapped_column(Numeric(5, 2), nullable=True)
     body_fat_percent: Mapped[Optional[Decimal]] = mapped_column(Numeric(4, 2), nullable=True)
     chest_cm: Mapped[Optional[Decimal]] = mapped_column(Numeric(5, 2), nullable=True)
@@ -207,5 +275,5 @@ class BodyMeasurement(Base):
     arm_cm: Mapped[Optional[Decimal]] = mapped_column(Numeric(5, 2), nullable=True)
     thigh_cm: Mapped[Optional[Decimal]] = mapped_column(Numeric(5, 2), nullable=True)
     calf_cm: Mapped[Optional[Decimal]] = mapped_column(Numeric(5, 2), nullable=True)
-    
+
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)

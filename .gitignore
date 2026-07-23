@@ -2,3 +2,12 @@
 /backend/app/api/__pycache__
 .env
 /backend/app/crud/__pycache__
+ER Diagram.txt
+Вимоги.docx
+/backend/app/api/endpoints/__pycache__
+/backend/app/api/endpoints/__pycache__
+/backend/app/api/endpoints/__pycache__
+/backend/app/api/endpoints/__pycache__
+*.pyc
+backend/app/api/endpoints/__pycache__/workout_days.cpython-312.pyc
+backend/app/api/endpoints/__pycache__/workout_days.cpython-312.pyc
